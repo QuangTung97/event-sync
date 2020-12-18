@@ -1,6 +1,8 @@
 package core_test
 
 import (
+	"context"
+	"sync"
 	"sync-event/core"
 	"testing"
 	"time"
@@ -113,8 +115,15 @@ func TestSyncService_FetchMultiples(t *testing.T) {
 				core.WithFetchChanSize(5),
 			)
 
+			var wg sync.WaitGroup
+			wg.Add(1)
+
+			ctx := context.Background()
+			ctx, cancel := context.WithCancel(ctx)
+
 			go func() {
-				s.Run()
+				defer wg.Done()
+				s.Run(ctx)
 			}()
 
 			for i := e.lastSequence + 1; i <= 12; i++ {
@@ -138,6 +147,9 @@ func TestSyncService_FetchMultiples(t *testing.T) {
 
 			assert.Equal(t, e.existed, res.Existed)
 			assert.Equal(t, e.expected, res.Result)
+
+			cancel()
+			wg.Wait()
 		})
 	}
 }

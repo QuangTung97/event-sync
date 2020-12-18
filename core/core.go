@@ -1,5 +1,7 @@
 package core
 
+import "context"
+
 // Event ...
 type Event struct {
 	Sequence uint64
@@ -88,8 +90,11 @@ func (s *SyncService) computeFetchResponse(req FetchRequest, events []Event, seq
 	}
 }
 
-func (s *SyncService) wait(events []Event, sequence uint64) uint64 {
+func (s *SyncService) wait(ctx context.Context, events []Event, sequence uint64) uint64 {
 	select {
+	case <-ctx.Done():
+		return sequence
+
 	case event := <-s.publishChan:
 		index := event.Sequence % s.eventBufferSize
 		events[index] = event
@@ -101,7 +106,10 @@ func (s *SyncService) wait(events []Event, sequence uint64) uint64 {
 		}
 
 		if req.FromSequence == sequence+1 {
-			sequence = s.wait(events, sequence)
+			sequence = s.wait(ctx, events, sequence)
+			if ctx.Err() != nil {
+				return sequence
+			}
 		}
 
 		res := s.computeFetchResponse(req, events, sequence)
@@ -112,12 +120,15 @@ func (s *SyncService) wait(events []Event, sequence uint64) uint64 {
 }
 
 // Run ...
-func (s *SyncService) Run() {
+func (s *SyncService) Run(ctx context.Context) {
 	events := make([]Event, s.eventBufferSize)
 	sequence := s.lastSequence
 
 	for {
-		sequence = s.wait(events, sequence)
+		sequence = s.wait(ctx, events, sequence)
+		if ctx.Err() != nil {
+			return
+		}
 	}
 }
 

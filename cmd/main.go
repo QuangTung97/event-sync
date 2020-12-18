@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"sync-event/core"
 	"time"
@@ -12,8 +13,9 @@ func main() {
 		core.WithFetchChanSize(20),
 	)
 
+	ctx := context.Background()
 	go func() {
-		s.Run()
+		s.Run(ctx)
 	}()
 
 	ch := make(chan core.FetchResponse, 1)
