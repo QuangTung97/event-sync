@@ -107,9 +107,6 @@ func (s *SyncService) wait(ctx context.Context, events []Event, sequence uint64)
 
 		if req.FromSequence == sequence+1 {
 			sequence = s.wait(ctx, events, sequence)
-			if ctx.Err() != nil {
-				return sequence
-			}
 		}
 
 		res := s.computeFetchResponse(req, events, sequence)

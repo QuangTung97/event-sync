@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestSyncService_FetchMultiples(t *testing.T) {
+func TestSyncService_FetchSingle(t *testing.T) {
 	table := []struct {
 		name         string
 		fromSequence uint64
@@ -152,4 +152,162 @@ func TestSyncService_FetchMultiples(t *testing.T) {
 			wg.Wait()
 		})
 	}
+}
+
+func TestSyncService_FetchPanic(t *testing.T) {
+	s := core.NewSyncService(0,
+		core.WithEventBufferSize(8),
+		core.WithPublishChanSize(5),
+		core.WithFetchChanSize(5),
+	)
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+
+	ctx := context.Background()
+	ctx, cancel := context.WithCancel(ctx)
+
+	var r interface{}
+
+	go func() {
+		defer func() {
+			r = recover()
+			wg.Done()
+		}()
+		s.Run(ctx)
+	}()
+
+	result := make([]core.Event, 0, 5)
+
+	ch := make(chan core.FetchResponse)
+
+	s.Fetch(core.FetchRequest{
+		FromSequence: 2,
+		Limit:        5,
+		Result:       result,
+		ResponseChan: ch,
+	})
+
+	time.Sleep(20 * time.Millisecond)
+
+	cancel()
+	wg.Wait()
+
+	assert.Equal(t, "req.FromSequence > sequence + 1", r)
+}
+
+func TestSyncService_FetchMultiple(t *testing.T) {
+	s := core.NewSyncService(0,
+		core.WithEventBufferSize(8),
+		core.WithPublishChanSize(5),
+		core.WithFetchChanSize(5),
+	)
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+
+	ctx := context.Background()
+	ctx, cancel := context.WithCancel(ctx)
+
+	go func() {
+		defer wg.Done()
+		s.Run(ctx)
+	}()
+
+	ch := make(chan core.FetchResponse)
+
+	s.Fetch(core.FetchRequest{
+		FromSequence: 1,
+		Limit:        5,
+		ResponseChan: ch,
+	})
+
+	s.Fetch(core.FetchRequest{
+		FromSequence: 1,
+		Limit:        5,
+		ResponseChan: ch,
+	})
+
+	time.Sleep(20 * time.Millisecond)
+	s.Publish(core.Event{
+		Sequence: 1,
+		Number:   101,
+	})
+
+	s.Publish(core.Event{
+		Sequence: 2,
+		Number:   102,
+	})
+
+	res := <-ch
+	assert.True(t, res.Existed)
+	expected := []core.Event{
+		{
+			Sequence: 1,
+			Number:   101,
+		},
+	}
+	assert.Equal(t, expected, res.Result)
+
+	res = <-ch
+	assert.True(t, res.Existed)
+	expected = []core.Event{
+		{
+			Sequence: 1,
+			Number:   101,
+		},
+	}
+	assert.Equal(t, expected, res.Result)
+
+	cancel()
+	wg.Wait()
+}
+
+func TestSyncService_ContextCancel(t *testing.T) {
+	s := core.NewSyncService(0,
+		core.WithEventBufferSize(8),
+		core.WithPublishChanSize(5),
+		core.WithFetchChanSize(5),
+	)
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+
+	ctx := context.Background()
+	ctx, cancel := context.WithCancel(ctx)
+
+	go func() {
+		defer wg.Done()
+		s.Run(ctx)
+	}()
+
+	ch := make(chan core.FetchResponse)
+
+	s.Fetch(core.FetchRequest{
+		FromSequence: 1,
+		Limit:        5,
+		ResponseChan: ch,
+	})
+
+	s.Fetch(core.FetchRequest{
+		FromSequence: 1,
+		Limit:        5,
+		ResponseChan: ch,
+	})
+
+	time.Sleep(20 * time.Millisecond)
+
+	cancel()
+
+	var expected []core.Event
+
+	res := <-ch
+	assert.True(t, res.Existed)
+	assert.Equal(t, expected, res.Result)
+
+	res = <-ch
+	assert.True(t, res.Existed)
+	assert.Equal(t, expected, res.Result)
+
+	wg.Wait()
 }
